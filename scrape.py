@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 from bs4 import BeautifulSoup
+import csv
 
 folder = '/Users/mattlu/imessage_export'
 
@@ -44,31 +45,43 @@ if os.path.exists(source_path) and os.path.isfile(source_path):
         name = new_name
         new_destination_path = os.path.join(os.getcwd(), new_name)
         os.rename(destination_path, new_destination_path)
-        print(f"File has been renamed to {new_name}.")
+        print(f"File has been renamed to {new_name}")
 else:
     print(f"File not found: {source_path}")
 
 # Open and parse the HTML file
-with open(name + '.html', 'r', encoding='utf-8') as file:
+with open(name, 'r', encoding='utf-8') as file:
     soup = BeautifulSoup(file, 'html.parser')
 
-# Find all message blocks with the class "received" (which are displayed in gray)
-message_type = input("Enter the message type (received/sent iMessage): ")
+received_messages = soup.find_all('div', class_="received")
+sent_messages = soup.find_all('div', class_="sent iMessage")
 
-received_messages = soup.find_all('div', class_=message_type)
-
-# Extract text from the spans with class "bubble" (where the actual message text is)
+# Extract texts along with their timestamps
 texts = []
 for msg in received_messages:
+    # Extract timestamp text if it exists
+    timestamp_elem = msg.find('span', class_='timestamp')
+    timestamp = timestamp_elem.get_text(strip=True) if timestamp_elem else ""
+    timestamp = timestamp.split(" (")[0]
+    
     bubbles = msg.find_all('span', class_='bubble')
     for bubble in bubbles:
         text = bubble.get_text(strip=True)
         if text:  # Only add non-empty texts
-            texts.append(text)
+            texts.append((timestamp, text))
 
-# Save the extracted texts to a txt file
-with open('received_texts.csv', 'w', encoding='utf-8') as out_file:
-    for text in texts:
-        out_file.write(text + "\n")
+# Save the extracted texts with timestamps to a CSV file
+person = name.replace(".html", "")
+names = []
+received_name = person + '->me.csv'
+sent_name = 'me->' + person + '.csv'
+names.append(received_name)
+names.append(sent_name)
 
-print("Received messages saved to received_texts.csv")
+for name in names:
+    with open(name, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Timestamp", "Message"])
+        writer.writerows(texts)
+
+print("Messages with timestamps have been saved to the CSV file.")
