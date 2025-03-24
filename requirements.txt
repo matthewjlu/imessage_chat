@@ -1,0 +1,11 @@
+langchain>=0.1.0
+langchain-community>=0.0.10
+langchain-huggingface>=0.0.5
+pandas
+faiss-cpu
+sentence-transformers
+ollama
+transformers
+datasets
+torch
+beautifulsoup4 
