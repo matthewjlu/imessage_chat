@@ -3,8 +3,6 @@ import shutil
 import subprocess
 from bs4 import BeautifulSoup
 import csv
-from datetime import datetime  
-import pandas as pd
 
 folder = '/Users/mattlu/imessage_export'
 
@@ -58,60 +56,32 @@ with open(name, 'r', encoding='utf-8') as file:
 received_messages = soup.find_all('div', class_="received")
 sent_messages = soup.find_all('div', class_="sent iMessage")
 
-# Extract texts along with their timestamps for both received and sent messages
+# Extract texts along with their timestamps
 texts = []
-
-# Process received messages
 for msg in received_messages:
-    timestamp_elem = msg.find('span', class_='timestamp')
-    timestamp = timestamp_elem.get_text(strip=True) if timestamp_elem else ""
-    # Remove extra info in parentheses if present
-    timestamp = timestamp.split(" (")[0]
-    bubbles = msg.find_all('span', class_='bubble')
-    for bubble in bubbles:
-        text = bubble.get_text(strip=True)
-        if text:
-            texts.append((timestamp, text, "received"))
-
-# Process sent messages
-for msg in sent_messages:
+    # Extract timestamp text if it exists
     timestamp_elem = msg.find('span', class_='timestamp')
     timestamp = timestamp_elem.get_text(strip=True) if timestamp_elem else ""
     timestamp = timestamp.split(" (")[0]
+    
     bubbles = msg.find_all('span', class_='bubble')
     for bubble in bubbles:
         text = bubble.get_text(strip=True)
-        if text:
-            texts.append((timestamp, text, "sent"))
+        if text:  # Only add non-empty texts
+            texts.append((timestamp, text))
 
-# Define a parsing function for the timestamp string.
-def parse_timestamp(ts):
-    try:
-        return datetime.strptime(ts, "%b %d, %Y %I:%M:%S %p")
-    except Exception as e:
-        return datetime.min
-
-# Sort the messages based on the parsed timestamp to get the real-time order.
-texts.sort(key=lambda x: parse_timestamp(x[0]))
-
-# Save all messages in real-time order to one CSV file
+# Save the extracted texts with timestamps to a CSV file
 person = name.replace(".html", "")
-combined_csv = person + "_combined.csv"
+names = []
+received_name = person + '->me.csv'
+sent_name = 'me->' + person + '.csv'
+names.append(received_name)
+names.append(sent_name)
 
-with open(combined_csv, 'w', newline='', encoding='utf-8') as csvfile:
-    writer = csv.writer(csvfile)
-    writer.writerow(["Timestamp", "Message", "Type"])
-    writer.writerows(texts)
+for name in names:
+    with open(name, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Timestamp", "Message"])
+        writer.writerows(texts)
 
-df = pd.read_csv(combined_csv)
-
-# Remove duplicate rows, keeping the first occurrence
-df.drop_duplicates(inplace=True)
-
-# Save the cleaned DataFrame back to a CSV file (optional)
-df.to_csv(combined_csv, index=False)
-
-print("All messages have been saved in conversation order into", combined_csv)
-
-with open("last_csv.py", "w", encoding="utf-8") as f:
-    f.write(f'combined_csv = "{combined_csv}"\n')
+print("Messages with timestamps have been saved to the CSV file.")
