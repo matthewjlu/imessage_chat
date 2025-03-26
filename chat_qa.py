@@ -9,7 +9,7 @@ import pandas as pd
 from datetime import datetime
 import os
 import re
-from scrape.py import combined_csv
+from last_csv import combined_csv
 
 def load_messages(csv_file):
     """Load messages from CSV and format them with timestamps and message type"""
@@ -81,11 +81,13 @@ CRITICAL INSTRUCTIONS:
 2. If the answer is not explicitly in the context, say "I cannot find this information in the provided messages."
 3. Do NOT use any prior knowledge or make assumptions outside of what is provided.
 4. Do NOT invent or hallucinate any timestamps, dates, or message content.
-5. When asked about the most recent message, ALWAYS look at the timestamps and find the latest one.
-6. If asked about sent or received messages, pay careful attention to the [sent] or [received] tags.
+5. Timestamps in the context will appear in this format: [YYYY-MM-DD HH:MM:SS]. For example: [2025-03-19 22:55:34]
+6. When you reference a timestamp in your answer, REFORMAT the date part into "Month Day, Year" format. For example:
+   - If the timestamp is [2025-03-19 22:55:34], say: "March 19, 2025 at 10:55 PM"
+7. DO NOT repeat the timestamp in YYYY-MM-DD format. Always convert it as shown.
+8. Always mention whether the message was [sent] or [received].
 
-Each message in the context has a timestamp in the format [YYYY-MM-DD HH:MM:SS] and a type [sent] or [received].
-When answering questions about when something happened, ALWAYS include the exact timestamp from the context and whether sent or received.
+When answering questions about when something happened, ALWAYS reformat the timestamp as described above.
 
 Context:
 {context}
@@ -95,6 +97,7 @@ Question: {question}
 Your answer MUST be based ONLY on the above context. If the information isn't present in the context, admit you don't know.
 
 Answer:"""
+
     
     # Create a prompt using PromptTemplate
     prompt = PromptTemplate(
