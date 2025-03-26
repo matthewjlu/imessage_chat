@@ -1,5 +1,7 @@
 config.py
 split.py
+last_csv.py
+chat_qa.py
 *.csv
 *.html
 *.json
