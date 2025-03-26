@@ -4,6 +4,7 @@ import pandas as pd
 import logging
 from datetime import datetime
 from collections import defaultdict
+from dotenv import load_dotenv
 from typing import Tuple
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
@@ -12,13 +13,6 @@ from langchain_community.chat_models import ChatPerplexity
 from langchain.prompts import PromptTemplate
 from langchain.retrievers import MultiQueryRetriever
 from last_csv import combined_csv
-from config import (
-    PERPLEXITY_API_KEY,
-    PINECONE_API_KEY,
-    PINECONE_ENVIRONMENT,
-    PINECONE_INDEX_NAME,
-    OPENAI_API_KEY
-)
 
 # Additional imports for improved display using Rich
 from rich.console import Console
@@ -26,6 +20,13 @@ from rich.table import Table
 
 # Set up logging for debug information and error tracking.
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
+PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
 
 def setup_environment():
     os.environ['TOKENIZERS_PARALLELISM'] = 'false'
