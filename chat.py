@@ -1,14 +1,11 @@
 import os
-import re
 import pandas as pd
 import logging
-from datetime import datetime
-from collections import defaultdict
 from dotenv import load_dotenv
 from typing import Tuple
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
+from langchain.vectorstores import SupabaseVectorStore
 from langchain_community.chat_models import ChatPerplexity
 from langchain.prompts import PromptTemplate
 from langchain.retrievers import MultiQueryRetriever
@@ -24,15 +21,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
-PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_TABLE_NAME = os.getenv("SUPABASE_TABLE_NAME", "documents")
 
 def setup_environment():
     os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-    os.environ['PINECONE_API_KEY'] = PINECONE_API_KEY
-    os.environ['PINECONE_ENVIRONMENT'] = PINECONE_ENVIRONMENT
     os.environ['OPENAI_API_KEY'] = OPENAI_API_KEY
+    os.environ['SUPABASE_URL'] = SUPABASE_URL
+    os.environ['SUPABASE_SERVICE_ROLE_KEY'] = SUPABASE_SERVICE_ROLE_KEY
 
 PROMPT = PromptTemplate(
     template="""You are a helpful assistant that answers questions about text message conversations. Your task is to answer the question using ONLY the specific context provided below.
@@ -53,19 +50,6 @@ Question: {question}
 
 Answer:""",
     input_variables=["context", "question"]
-)
-
-INTENT_PROMPT = PromptTemplate(
-    template="""Classify the following question as asking for the earliest, latest, or neither message. Respond ONLY with one of: earliest, latest, neither.
-
-Examples:
-Question: What was our first text message? -> earliest
-Question: When did we last text? -> latest
-Question: What did I ask you yesterday? -> neither
-
-Question: {question}
-Answer:""",
-    input_variables=["question"]
 )
 
 def load_messages(csv_path: str) -> Tuple[pd.DataFrame, str]:
@@ -94,7 +78,7 @@ def load_messages(csv_path: str) -> Tuple[pd.DataFrame, str]:
     )
     return df, text
 
-def setup_qa_system():
+def setup_qa_system(user_id: str):
     try:
         df, text = load_messages(combined_csv)
     except Exception as e:
@@ -110,15 +94,25 @@ def setup_qa_system():
 
     try:
         embeddings = OpenAIEmbeddings(openai_api_key=os.getenv('OPENAI_API_KEY'))
-        vectorstore = PineconeVectorStore.from_texts(chunks, embeddings, index_name=PINECONE_INDEX_NAME, text_key="text")
+        # Create a metadata list tagging each chunk with the provided user_id.
+        metadatas = [{"user_id": user_id} for _ in chunks]
+        vectorstore = SupabaseVectorStore.from_texts(
+            texts=chunks,
+            embedding=embeddings,
+            supabase_url=SUPABASE_URL,
+            supabase_key=SUPABASE_SERVICE_ROLE_KEY,
+            table_name=SUPABASE_TABLE_NAME,
+            text_column="text",
+            metadatas=metadatas
+        )
     except Exception as e:
         logging.error(f"Error setting up embeddings or vector store: {e}")
         raise
 
     try:
-        # Use 'similarity' search instead of 'mmr' for a more direct relevance ranking.
+        # Use 'similarity' search and include a filter for the given user_id.
         retriever = MultiQueryRetriever.from_llm(
-            vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5}),
+            vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 5, "filter": {"user_id": user_id}}),
             llm=ChatPerplexity(model="llama-3.1-sonar-small-128k-online", temperature=0.1, pplx_api_key=PERPLEXITY_API_KEY)
         )
     except Exception as e:
@@ -126,13 +120,12 @@ def setup_qa_system():
         raise
 
     try:
-        intent_chain = INTENT_PROMPT | ChatPerplexity(model="llama-3.1-sonar-small-128k-online", temperature=0.0, pplx_api_key=PERPLEXITY_API_KEY)
         qa_chain = PROMPT | ChatPerplexity(model="llama-3.1-sonar-small-128k-online", temperature=0.1, pplx_api_key=PERPLEXITY_API_KEY)
     except Exception as e:
-        logging.error(f"Error setting up chains: {e}")
+        logging.error(f"Error setting up QA chain: {e}")
         raise
 
-    return qa_chain, retriever, df, intent_chain
+    return qa_chain, retriever, df
 
 def display_top_messages(messages, top_n=5):
     """Display top N messages (assumed sorted by relevance) using a Rich table."""
@@ -146,8 +139,10 @@ def display_top_messages(messages, top_n=5):
 
 def main():
     setup_environment()
+    # Prompt the user to enter their identifier.
+    user_id = input("Please enter your user ID: ").strip()
     try:
-        qa_chain, retriever, df, intent_chain = setup_qa_system()
+        qa_chain, retriever, df = setup_qa_system(user_id)
     except Exception as e:
         logging.error("Failed to set up the QA system. Exiting.")
         return
@@ -162,26 +157,6 @@ def main():
 
         if question.lower() == 'exit':
             break
-
-        try:
-            intent_response = intent_chain.invoke({"question": question})
-            intent = intent_response.content.strip().lower()
-        except Exception as e:
-            logging.error(f"Error invoking intent chain: {e}")
-            print("An error occurred while processing your question. Please try again.")
-            continue
-
-        record = None
-        if intent == 'latest':
-            record = df.iloc[-1]
-        elif intent == 'earliest':
-            record = df.iloc[0]
-
-        if record is not None:
-            ts = record.datetime.strftime("%B %d, %Y at %I:%M %p")
-            direction = '[sent]' if record.Type.lower() == 'sent' else '[received]'
-            print(f"\nAnswer: The {intent} message was {direction} on {ts}: {record.Message}")
-            continue
 
         try:
             docs = retriever.invoke(question)
